@@ -90,9 +90,9 @@ class TNEFFilter(SMTPServer):
                 new_message_container.attach(mime_container)
                 fd.close()
 
-        # Make sure to clean-up
-        logger.debug('Cleaning up temporary files at %s' % tmp_path)
-        shutil.rmtree(tmp_path)
+            # Make sure to clean-up
+            logger.debug('Cleaning up temporary files at %s' % tmp_path)
+            shutil.rmtree(tmp_path)
 
         server = smtplib.SMTP()
         server.connect(self._remoteaddr[0], self._remoteaddr[1])
