@@ -32,6 +32,7 @@ RUNAS_GROUP = 'nogroup'
 LOCAL_ADDRESS = ('localhost', 10025)
 SMTP_RELAY = ('localhost', 20025)
 TMP_BASE = '/tmp'
+SPOOL_TNEF = False
 
 def wraptext(text, wraplen=80):
     parts = []
@@ -46,6 +47,9 @@ def wraptext(text, wraplen=80):
 class TNEFFilter(SMTPServer):
     def process_message(self, peer, mailfrom, rcpttos, data):
 
+        if SPOOL_TNEF and not os.path.exists('/tmp/tnefspool'):
+            os.mkdir('/tmp/tnefspool')
+
         parser = Parser()
         message = parser.parsestr(data)
         new_message = parser.parsestr(data)
@@ -55,7 +59,17 @@ class TNEFFilter(SMTPServer):
 
         has_tnef = False
         for idx, payload in enumerate(message.get_payload()):
-            if 'application/ms-tnef' not in payload['Content-Type']:
+            if(isinstance(payload, basestring)):
+                # Wasn't a multipart message
+                break
+
+            if SPOOL_TNEF and 'application/ms-tnef' in payload.get_content_type():
+                message_id = hashlib.md5(str(time.time())).hexdigest()[:8]
+                spoolfd = open(os.path.join('/tmp/tnefspool', 'msg-%s' % (message_id,)), 'wb')
+                spoolfd.write(data)
+                spoolfd.close()
+
+            if 'application/ms-tnef' not in payload.get_content_type():
                 new_message_container.attach(payload)
                 if 'X-MS-TNEF-Correlator' in payload:
                     del payload['X-MS-TNEF-Correlator']
@@ -136,13 +150,18 @@ if __name__ == '__main__':
     pidfile_path = '/var/run/tneffilter.pid'
     logger = logging.getLogger('tneffilter')
     logger.setLevel(logging.DEBUG)
+    logging_formatter = logging.Formatter('%(asctime)s %(levelname)-5.5s [%(name)s] %(message)s')
     logging_handler = logging.FileHandler('/var/log/tneffilter.log', 'a')
-    logging_handler.setLevel(logging.NOTSET)
+    logging_handler.setLevel(logging.DEBUG)
+    logging_handler.setFormatter(logging_formatter)
     logger.addHandler(logging_handler)
 
     logging_fd = logging_handler.stream.fileno()
 
     keep_fds = [logging_fd]
+
+    if '-s' in sys.argv:
+        SPOOL_TNEF = True
 
     if '-d' in sys.argv:
         daemon = Daemonize(app='tneffilter', pid=pidfile_path, action=main, keep_fds=keep_fds)
