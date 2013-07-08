@@ -92,8 +92,15 @@ class TNEFFilter(SMTPServer):
             self.tnef_extract(os.path.join(tmp_path, 'winmail.dat'))
 
             for attachment in attachments:
+                if attachment.strip() == '':
+                    logger.warning('Empty attachment filename in %s' % tmp_path)
+
                 attachment_path = os.path.join(tmp_path, attachment)
-                mimetype = mimetypes.guess_type(attachment_path)[0].split('/')
+                mimetype = mimetypes.guess_type(attachment_path)
+                if mimetype[0] is not None:
+                    mimetype = mimetype[0].split('/')
+                else:
+                    mimetype = ('text', 'plain')
                 size = os.path.getsize(attachment_path)
                 logger.debug('TNEF Attachment: %s - %s - %s bytes' % (attachment, mimetype, size))
                 fd = open(attachment_path, 'rb')
@@ -131,7 +138,7 @@ class TNEFFilter(SMTPServer):
 
     @staticmethod
     def tnef_extract(filename):
-        pd = subprocess.Popen('tnef -C %s %s' % (os.path.dirname(filename), filename), shell=True)
+        pd = subprocess.Popen('tnef --number-backups -C %s %s' % (os.path.dirname(filename), filename), shell=True)
         pd.wait()
 
 def main():
