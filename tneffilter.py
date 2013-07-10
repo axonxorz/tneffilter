@@ -89,6 +89,7 @@ class TNEFFilter(SMTPServer):
             logger.debug('TNEF at: %s' % (os.path.join(tmp_path, 'winmail.dat')))
 
             attachments = self.tnef_list(os.path.join(tmp_path, 'winmail.dat'))
+            logger.debug(str(attachments))
             self.tnef_extract(os.path.join(tmp_path, 'winmail.dat'))
 
             for attachment in attachments:
@@ -133,7 +134,9 @@ class TNEFFilter(SMTPServer):
         (stdout, stderr) = pd.communicate()
         attachments = []
         for attachment in stdout.strip().split('\n'):
-            attachments.append(attachment.split('|')[0].strip())
+            att = attachment.split('|')[0].strip()
+            if att.strip() != '':
+                attachments.append(att)
         return attachments
 
     @staticmethod
@@ -174,6 +177,12 @@ if __name__ == '__main__':
         daemon = Daemonize(app='tneffilter', pid=pidfile_path, action=main, keep_fds=keep_fds)
         daemon.start()
     else:
+
+        console_logging = logging.StreamHandler(sys.stdout)
+        console_logging.setFormatter(logging_formatter)
+        console_logging.setLevel(logging.DEBUG)
+        logger.addHandler(console_logging)
+
         pidfile = open(pidfile_path, 'wb')
         pidfile.write(str(os.getpid()))
         pidfile.close()
