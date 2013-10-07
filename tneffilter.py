@@ -8,6 +8,8 @@ import hashlib
 import shutil
 import subprocess
 import pwd, grp
+import traceback
+from functools import wraps
 
 import mimetypes
 import base64
@@ -32,7 +34,9 @@ RUNAS_GROUP = 'nogroup'
 LOCAL_ADDRESS = ('localhost', 10025)
 SMTP_RELAY = ('localhost', 20025)
 TMP_BASE = '/tmp'
-SPOOL_TNEF = False
+SPOOL_TNEF = True
+
+ADMIN_ADDRESS = 'admin@example.com'
 
 def wraptext(text, wraplen=80):
     parts = []
@@ -44,7 +48,35 @@ def wraptext(text, wraplen=80):
         parts.append(text[start:])
     return '\r\n'.join(parts)
 
+class ErrorHandler(object):
+    def __init__(self, handler):
+        self.handler = handler
+
+    def __call__(self, function):
+        @wraps(function)
+        def returnfunction(*args, **kwargs):
+            try:
+                return function(*args, **kwargs)
+            except Exception, e:
+                tb = traceback.format_exc()
+                self.handler(e, tb)
+                raise
+        return returnfunction
+
+def mail_exception(e, tb):
+    """Spool an exception message into the SMTP relay. Don't resubmit to a base
+    SMTP server as this could cause a recursive loop handling messages if there's a
+    serious enough error"""
+    smtp = smtplib.SMTP(SMTP_RELAY[0], SMTP_RELAY[1])
+    text = 'Text'
+    message = MIMEText(tb)
+    message['Subject'] = 'tneffilter.py Exception'
+    message['From'] = ADMIN_ADDRESS
+    message['To'] = ADMIN_ADDRESS
+    smtp.sendmail(ADMIN_ADDRESS, ADMIN_ADDRESS, message.as_string())
+
 class TNEFFilter(SMTPServer):
+    @ErrorHandler(mail_exception)
     def process_message(self, peer, mailfrom, rcpttos, data):
 
         if SPOOL_TNEF and not os.path.exists('/tmp/tnefspool'):
@@ -119,11 +151,11 @@ class TNEFFilter(SMTPServer):
         server = smtplib.SMTP()
         server.connect(self._remoteaddr[0], self._remoteaddr[1])
         if has_tnef:
-            logger.debug('Sending TNEF parsed message')
+            logger.debug('Sending TNEF parsed message (%s -> %s)' % (mailfrom, ','.join(rcpttos)))
             new_message.set_payload(new_message_container)
             server.sendmail(mailfrom, rcpttos, new_message.as_string())
         else:
-            logger.debug('Sending original message')
+            logger.debug('Sending original message (%s -> %s)' % (mailfrom, ','.join(rcpttos)))
             server.sendmail(mailfrom, rcpttos, data)
         server.quit()
 
@@ -134,9 +166,13 @@ class TNEFFilter(SMTPServer):
         (stdout, stderr) = pd.communicate()
         attachments = []
         for attachment in stdout.strip().split('\n'):
-            att = attachment.split('|')[0].strip()
-            if att.strip() != '':
-                attachments.append(att)
+            try:
+                att = attachment.split('|')[1].strip()
+                if att.strip() != '':
+                    attachments.append(att)
+            except IndexError:
+                # No internal parts from the TNEF file
+                pass
         return attachments
 
     @staticmethod
@@ -154,7 +190,7 @@ def main():
         asyncore.loop()
     except KeyboardInterrupt:
         print 'Quitting...'
-        
+
 
 if __name__ == '__main__':
     pidfile_path = '/var/run/tneffilter.pid'
@@ -186,4 +222,5 @@ if __name__ == '__main__':
         pidfile = open(pidfile_path, 'wb')
         pidfile.write(str(os.getpid()))
         pidfile.close()
+
         main()
