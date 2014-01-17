@@ -60,13 +60,10 @@ class ErrorHandler(object):
             except Exception, e:
                 tb = traceback.format_exc()
                 self.handler(e, tb)
-                raise
+                raise 
         return returnfunction
 
 def mail_exception(e, tb):
-    """Spool an exception message into the SMTP relay. Don't resubmit to a base
-    SMTP server as this could cause a recursive loop handling messages if there's a
-    serious enough error"""
     smtp = smtplib.SMTP(SMTP_RELAY[0], SMTP_RELAY[1])
     text = 'Text'
     message = MIMEText(tb)
@@ -155,7 +152,8 @@ class TNEFFilter(SMTPServer):
             new_message.set_payload(new_message_container)
             server.sendmail(mailfrom, rcpttos, new_message.as_string())
         else:
-            logger.debug('Sending original message (%s -> %s)' % (mailfrom, ','.join(rcpttos)))
+            # Don't need to clutter the log with 'sent' messages in this case
+            #logger.debug('Sending original message (%s -> %s)' % (mailfrom, ','.join(rcpttos)))
             server.sendmail(mailfrom, rcpttos, data)
         server.quit()
 
@@ -165,9 +163,10 @@ class TNEFFilter(SMTPServer):
         pd.wait()
         (stdout, stderr) = pd.communicate()
         attachments = []
-        for attachment in stdout.strip().split('\n'):
+        for attachment in stdout.strip('\n').split('\n'):
             try:
-                att = attachment.split('|')[1].strip()
+                logger.debug(attachment)
+                att = attachment.split('|')[1].strip('\n\t')
                 if att.strip() != '':
                     attachments.append(att)
             except IndexError:
@@ -190,7 +189,7 @@ def main():
         asyncore.loop()
     except KeyboardInterrupt:
         print 'Quitting...'
-
+        
 
 if __name__ == '__main__':
     pidfile_path = '/var/run/tneffilter.pid'
